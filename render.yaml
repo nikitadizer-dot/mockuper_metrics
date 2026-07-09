@@ -1,0 +1,29 @@
+# Деплой на Render: https://render.com
+# Blueprint создаст background worker, который живёт постоянно
+# (нужен платный план Starter). Бесплатная альтернатива — см. README.
+services:
+  - type: worker
+    name: mockuper-metrics-bot
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false # вставить в дашборде Render
+      - key: TELEGRAM_CHAT_ID
+        sync: false # ID чата, куда слать отчёты (команда /chatid у бота)
+      - key: POSTHOG_API_KEY
+        sync: false # personal API key (phx_...)
+      - key: POSTHOG_PROJECT_ID
+        value: "498457"
+      - key: POSTHOG_HOST
+        value: https://us.posthog.com
+      - key: REPORT_TZ
+        value: Europe/Moscow
+      - key: REPORT_HOUR
+        value: "9"
+      - key: APP_NAME
+        value: Mockup Clothing
