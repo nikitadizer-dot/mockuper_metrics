@@ -50,6 +50,22 @@ Telegram-бот, который каждый день в 9:00 присылает
 
 ## Деплой на Render
 
+Быстрый путь — скрипт, который делает всё сам (проверяет имена событий в
+PostHog, создаёт background worker через Render API, шлёт тестовый отчёт
+и прописывает `TELEGRAM_CHAT_ID`):
+
+```bash
+pip install -r requirements.txt
+export RENDER_API_KEY=rnd_...
+export POSTHOG_API_KEY=phx_...
+export POSTHOG_PROJECT_ID=498457
+export TELEGRAM_BOT_TOKEN=123:ABC...
+# заранее напишите боту любое сообщение, чтобы скрипт нашёл chat_id
+python scripts/bootstrap_render.py
+```
+
+Ручной путь через дашборд:
+
 1. Запушьте репозиторий на GitHub (уже сделано).
 2. На [render.com](https://render.com): **New → Blueprint**, выберите этот
    репозиторий — Render прочитает `render.yaml` и создаст background worker.
