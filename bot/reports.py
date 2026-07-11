@@ -65,15 +65,19 @@ def _prop_expr(props: list[str], fallback: str = "") -> str:
 
 
 def _delta(cur: float, prev: float) -> str:
-    """Сравнение с предыдущим периодом: 🔺 +25% (пред.: 4)."""
+    """Компактное сравнение с предыдущим периодом: 🟢 +25% (4).
+
+    Стрелки-эмодзи не используем: 🔺 в Telegram всегда красная,
+    а рост должен быть зелёным. Цвет несут 🟢/🔴, знак — сам процент.
+    """
     if prev == 0:
-        return " (пред.: 0)" if cur else ""
+        return " (0)" if cur else ""
     diff = (cur - prev) / prev * 100
     prev_s = f"{prev:g}"
     if round(diff) == 0:
-        return f" (= пред.: {prev_s})"
-    arrow = "🔺" if diff > 0 else "🔻"
-    return f" ({arrow} {diff:+.0f}%, пред.: {prev_s})"
+        return f" ⚪ 0% ({prev_s})"
+    mark = "🟢" if diff > 0 else "🔴"
+    return f" {mark} {diff:+.0f}% ({prev_s})"
 
 
 class ReportBuilder:
@@ -150,15 +154,15 @@ class ReportBuilder:
         if prev_conversion or conversion:
             pp = conversion - prev_conversion
             if abs(pp) < 0.05:
-                conv_delta = f" (= пред.: {prev_conversion:.1f}%)"
+                conv_delta = f" ⚪ ({prev_conversion:.1f}%)"
             else:
-                arrow = "🔺" if pp > 0 else "🔻"
-                conv_delta = f" ({arrow} {pp:+.1f} п.п., пред.: {prev_conversion:.1f}%)"
+                mark = "🟢" if pp > 0 else "🔴"
+                conv_delta = f" {mark} {pp:+.1f} п.п. ({prev_conversion:.1f}%)"
 
         def row(label: str, key: str) -> str:
-            return f"  • {label}: {m[key]}{_delta(m[key], p[key])}"
+            return f"• {label}: {m[key]}{_delta(m[key], p[key])}"
 
-        users_label = "DAU" if kind in ("daily", "today") else "Уникальных пользователей"
+        users_label = "DAU" if kind in ("daily", "today") else "Пользователей"
 
         lines = [
             f"📱 {self.cfg.app_name} — {title}",
@@ -167,28 +171,29 @@ class ReportBuilder:
             "",
             "👥 Пользователи",
             row(users_label, "dau"),
-            row("Новых установок", "installs"),
-            row("Запусков приложения", "app_opened"),
-            row("Открыли редактор", "editor_opened"),
+            row("Установок", "installs"),
+            row("Запусков", "app_opened"),
+            row("Редактор", "editor_opened"),
             "",
             "💰 Монетизация",
             row("Покупок", "purchases"),
-            row("Пейволл показан", "paywall_shown"),
-            f"  • Конверсия: {conversion:.1f}%{conv_delta}",
+            row("Пейволлов", "paywall_shown"),
+            f"• Конверсия: {conversion:.1f}%{conv_delta}",
             "",
             "🎨 Контент",
-            row("Мокапов сохранено", "mockups_saved"),
+            row("Мокапов", "mockups_saved"),
             row("AI-генераций", "ai_generations"),
         ]
 
         if m["garments"]:
             lines += ["", "👗 Топ гарментов"]
-            lines += [f"  • {name}: {c}" for name, c in m["garments"]]
+            lines += [f"• {name}: {c}" for name, c in m["garments"]]
 
         if m["paywall_sources"]:
             lines += ["", "🔓 Источники пейволла"]
-            lines += [f"  • {name}: {c}" for name, c in m["paywall_sources"]]
+            lines += [f"• {name}: {c}" for name, c in m["paywall_sources"]]
 
+        lines += ["", "🟢 рост · 🔴 падение · в скобках — пред. период"]
         return "\n".join(lines)
 
     def list_events(self, days: int = 14) -> str:
