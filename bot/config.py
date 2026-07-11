@@ -26,6 +26,7 @@ class Config:
 
     # Имена событий в PostHog. Для каждой метрики можно указать несколько
     # кандидатов через запятую — считаются все, которые реально есть в данных.
+    events_app_installed: list[str]
     events_app_opened: list[str]
     events_editor_opened: list[str]
     events_purchase: list[str]
@@ -60,6 +61,10 @@ def load_config() -> Config:
         report_hour=int(os.environ.get("REPORT_HOUR", "9")),
         state_file=os.environ.get("STATE_FILE", "state.json"),
         enable_polling=os.environ.get("ENABLE_POLLING", "1") not in ("0", "false", "no"),
+        events_app_installed=_list(
+            "EVENTS_APP_INSTALLED",
+            "Application Installed",
+        ),
         events_app_opened=_list(
             "EVENTS_APP_OPENED",
             "Application Opened,app_opened,app_launched,app_launch,app_open",

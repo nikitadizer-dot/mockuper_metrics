@@ -109,6 +109,7 @@ class ReportBuilder:
 
         return {
             "dau": dau,
+            "installs": total(cfg.events_app_installed),
             "app_opened": total(cfg.events_app_opened),
             "editor_opened": total(cfg.events_editor_opened),
             "purchases": total(cfg.events_purchase),
@@ -136,6 +137,7 @@ class ReportBuilder:
             "",
             "👥 Пользователи",
             f"  • {users_label}: {m['dau']}",
+            f"  • Новых установок: {m['installs']}",
             f"  • Запусков приложения: {m['app_opened']}",
             f"  • Открыли редактор: {m['editor_opened']}",
             "",
