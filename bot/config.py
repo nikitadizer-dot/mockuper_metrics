@@ -72,17 +72,22 @@ def load_config() -> Config:
             "EVENTS_PURCHASE",
             "purchase_completed,purchase_success,purchase,subscription_purchased,subscription_started",
         ),
+        # В данных есть и paywall_viewed, и paywall_shown, но paywall_viewed —
+        # надмножество (paywall_shown дублирует его для части источников),
+        # поэтому считаем только paywall_viewed, иначе двойной счёт.
         events_paywall_shown=_list(
             "EVENTS_PAYWALL_SHOWN",
-            "paywall_shown,paywall_opened,paywall_viewed,paywall_show",
+            "paywall_viewed",
         ),
         events_mockup_saved=_list(
             "EVENTS_MOCKUP_SAVED",
             "mockup_saved,mockup_save,save_mockup,mockup_exported,mockup_downloaded",
         ),
+        # Считаем только успешные генерации: started и failed есть в данных
+        # отдельно, суммировать их вместе с completed нельзя.
         events_ai_generation=_list(
             "EVENTS_AI_GENERATION",
-            "ai_generation,ai_generation_completed,generation_completed,ai_generate,ai_generation_started",
+            "ai_generation_completed",
         ),
         garment_props=_list(
             "GARMENT_PROPS",
