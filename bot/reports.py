@@ -123,6 +123,25 @@ class ReportBuilder:
             f"GROUP BY s ORDER BY c DESC LIMIT 10"
         )
 
+        # У события покупки нет источника, поэтому привязываем каждую покупку
+        # к последнему пейволлу этого пользователя (ASOF JOIN); пейволлы берём
+        # с запасом в 7 дней до начала периода.
+        pw_from = _utc_str(start - timedelta(days=7), self.tz)
+        purchase_sources = self.ph.query(
+            f"SELECT if(pw.src = '', 'не определено', pw.src) AS s, count() AS c "
+            f"FROM events AS p "
+            f"ASOF LEFT JOIN ("
+            f"SELECT person_id, timestamp, {sexpr} AS src FROM events "
+            f"WHERE event IN {_in_list(cfg.events_paywall_shown)} "
+            f"AND timestamp >= toDateTime('{pw_from}', 'UTC') "
+            f"AND timestamp < toDateTime('{_utc_str(end, self.tz)}', 'UTC')"
+            f") AS pw ON p.person_id = pw.person_id AND pw.timestamp <= p.timestamp "
+            f"WHERE p.event IN {_in_list(cfg.events_purchase)} "
+            f"AND p.timestamp >= toDateTime('{_utc_str(start, self.tz)}', 'UTC') "
+            f"AND p.timestamp < toDateTime('{_utc_str(end, self.tz)}', 'UTC') "
+            f"GROUP BY s ORDER BY c DESC LIMIT 10"
+        )
+
         return {
             "dau": dau,
             "installs": total(cfg.events_app_installed),
@@ -134,6 +153,7 @@ class ReportBuilder:
             "ai_generations": total(cfg.events_ai_generation),
             "garments": [(r[0], int(r[1])) for r in garments],
             "paywall_sources": [(r[0], int(r[1])) for r in sources],
+            "purchase_sources": [(r[0], int(r[1])) for r in purchase_sources],
         }
 
     def build(self, kind: str) -> str:
@@ -177,6 +197,11 @@ class ReportBuilder:
             "",
             "💰 Монетизация",
             row("Покупок", "purchases"),
+            *(
+                [f"  ↳ {' · '.join(f'{name}: {c}' for name, c in m['purchase_sources'])}"]
+                if m["purchase_sources"]
+                else []
+            ),
             row("Пейволлов", "paywall_shown"),
             f"• Конверсия: {conversion:.1f}%{conv_delta}",
             "",
