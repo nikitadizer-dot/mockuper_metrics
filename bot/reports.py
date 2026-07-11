@@ -64,6 +64,18 @@ def _prop_expr(props: list[str], fallback: str = "") -> str:
     return f"coalesce({', '.join(parts)}, {_sql_str(fallback)})"
 
 
+def _delta(cur: float, prev: float) -> str:
+    """Сравнение с предыдущим периодом: 🔺 +25% (пред.: 4)."""
+    if prev == 0:
+        return " (пред.: 0)" if cur else ""
+    diff = (cur - prev) / prev * 100
+    prev_s = f"{prev:g}"
+    if round(diff) == 0:
+        return f" (= пред.: {prev_s})"
+    arrow = "🔺" if diff > 0 else "🔻"
+    return f" ({arrow} {diff:+.0f}%, пред.: {prev_s})"
+
+
 class ReportBuilder:
     def __init__(self, cfg: Config, ph: PostHogClient):
         self.cfg = cfg
@@ -124,9 +136,27 @@ class ReportBuilder:
         start, end, title, date_label = period_bounds(kind, self.tz)
         m = self.gather(start, end)
 
-        conversion = 0.0
-        if m["paywall_shown"] > 0:
-            conversion = m["purchases"] / m["paywall_shown"] * 100
+        # Предыдущий период той же длины (для "today" — вчера целиком).
+        period_len = end - start
+        p = self.gather(start - period_len, start)
+
+        def conv(metrics: dict) -> float:
+            if metrics["paywall_shown"] > 0:
+                return metrics["purchases"] / metrics["paywall_shown"] * 100
+            return 0.0
+
+        conversion, prev_conversion = conv(m), conv(p)
+        conv_delta = ""
+        if prev_conversion or conversion:
+            pp = conversion - prev_conversion
+            if abs(pp) < 0.05:
+                conv_delta = f" (= пред.: {prev_conversion:.1f}%)"
+            else:
+                arrow = "🔺" if pp > 0 else "🔻"
+                conv_delta = f" ({arrow} {pp:+.1f} п.п., пред.: {prev_conversion:.1f}%)"
+
+        def row(label: str, key: str) -> str:
+            return f"  • {label}: {m[key]}{_delta(m[key], p[key])}"
 
         users_label = "DAU" if kind in ("daily", "today") else "Уникальных пользователей"
 
@@ -136,19 +166,19 @@ class ReportBuilder:
             "━" * 20,
             "",
             "👥 Пользователи",
-            f"  • {users_label}: {m['dau']}",
-            f"  • Новых установок: {m['installs']}",
-            f"  • Запусков приложения: {m['app_opened']}",
-            f"  • Открыли редактор: {m['editor_opened']}",
+            row(users_label, "dau"),
+            row("Новых установок", "installs"),
+            row("Запусков приложения", "app_opened"),
+            row("Открыли редактор", "editor_opened"),
             "",
             "💰 Монетизация",
-            f"  • Покупок: {m['purchases']}",
-            f"  • Пейволл показан: {m['paywall_shown']}",
-            f"  • Конверсия: {conversion:.1f}%",
+            row("Покупок", "purchases"),
+            row("Пейволл показан", "paywall_shown"),
+            f"  • Конверсия: {conversion:.1f}%{conv_delta}",
             "",
             "🎨 Контент",
-            f"  • Мокапов сохранено: {m['mockups_saved']}",
-            f"  • AI-генераций: {m['ai_generations']}",
+            row("Мокапов сохранено", "mockups_saved"),
+            row("AI-генераций", "ai_generations"),
         ]
 
         if m["garments"]:
