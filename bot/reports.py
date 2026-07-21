@@ -4,8 +4,10 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from . import rc_events
 from .config import Config
 from .posthog_client import PostHogClient
+from .revenuecat_client import RevenueCatClient, RevenueCatError
 
 log = logging.getLogger(__name__)
 
@@ -80,10 +82,15 @@ def _delta(cur: float, prev: float) -> str:
     return f" {mark} {diff:+.0f}% ({prev_s})"
 
 
+def _money(x: float) -> str:
+    return f"${x:,.0f}" if abs(x) >= 100 else f"${x:,.2f}"
+
+
 class ReportBuilder:
-    def __init__(self, cfg: Config, ph: PostHogClient):
+    def __init__(self, cfg: Config, ph: PostHogClient, rc: RevenueCatClient | None = None):
         self.cfg = cfg
         self.ph = ph
+        self.rc = rc
         self.tz = ZoneInfo(cfg.tz_name)
 
     def _time_filter(self, start: date, end: date) -> str:
@@ -156,6 +163,58 @@ class ReportBuilder:
             "purchase_sources": [(r[0], int(r[1])) for r in purchase_sources],
         }
 
+    def revenue_lines(self, kind: str, start: date, end: date) -> list[str]:
+        """Секция «Деньги» из RevenueCat. Пустой список, если RC не настроен."""
+        if not self.rc:
+            return []
+        lines: list[str] = []
+        try:
+            gross = self.rc.revenue(start.isoformat(), end.isoformat(), "revenue")
+            proceeds = self.rc.revenue(start.isoformat(), end.isoformat(), "proceeds")
+            lines += [
+                "",
+                "💵 Деньги за период",
+                f"• Выручка (gross): {_money(gross)}",
+                f"• В карман (после Apple): {_money(proceeds)}",
+            ]
+        except RevenueCatError as e:
+            log.error("RevenueCat revenue: %s", e)
+            return ["", "💵 Деньги: ⚠️ RevenueCat недоступен"]
+
+        # Поток подписок из вебхуков (если настроены).
+        flow = rc_events.summarize(self.cfg.rc_events_file, start, end, self.tz)
+        if flow:
+            lines += [
+                "",
+                "🧾 Подписки за период",
+                f"• Новых: {flow['new']} (нед {flow['new_weekly']} / год {flow['new_yearly']})",
+                f"• Продлений: {flow['renewal']}",
+                f"• Отписались (autorenew off): {flow['cancellation']}",
+                f"• Закончились: {flow['expiration']}",
+            ]
+            if flow["refund"]:
+                lines.append(f"• Возвраты: {flow['refund']}")
+
+        # Текущий снапшот проекта (не за период, а «прямо сейчас» / за 28 дней).
+        try:
+            ov = self.rc.overview()
+            arppu = ov["mrr"] / ov["active_subscriptions"] if ov.get("active_subscriptions") else 0
+            lines += [
+                "",
+                "📊 Сейчас",
+                f"• MRR: {_money(ov.get('mrr', 0))}",
+                f"• Активных подписок: {ov.get('active_subscriptions', 0)}",
+            ]
+            if ov.get("active_trials"):
+                lines.append(f"• Активных триалов: {ov['active_trials']}")
+            lines += [
+                f"• ARPPU: {_money(arppu)}/мес",
+                f"• Новых юзеров (28д): {ov.get('new_customers', 0)}",
+            ]
+        except RevenueCatError as e:
+            log.error("RevenueCat overview: %s", e)
+        return lines
+
     def build(self, kind: str) -> str:
         start, end, title, date_label = period_bounds(kind, self.tz)
         m = self.gather(start, end)
@@ -217,6 +276,8 @@ class ReportBuilder:
         if m["paywall_sources"]:
             lines += ["", "🔓 Источники пейволла"]
             lines += [f"• {name}: {c}" for name, c in m["paywall_sources"]]
+
+        lines += self.revenue_lines(kind, start, end)
 
         lines += ["", "🟢 рост · 🔴 падение · в скобках — пред. период"]
         return "\n".join(lines)

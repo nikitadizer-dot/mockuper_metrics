@@ -24,6 +24,13 @@ class Config:
     state_file: str
     enable_polling: bool
 
+    # RevenueCat (выручка и подписки в отчётах). Необязательно — если ключа
+    # нет, отчёт просто не показывает денежную секцию.
+    rc_api_key: str
+    rc_project_id: str
+    rc_events_file: str
+    rc_webhook_auth: str
+
     # Имена событий в PostHog. Для каждой метрики можно указать несколько
     # кандидатов через запятую — считаются все, которые реально есть в данных.
     events_app_installed: list[str]
@@ -61,6 +68,10 @@ def load_config() -> Config:
         report_hour=int(os.environ.get("REPORT_HOUR", "9")),
         state_file=os.environ.get("STATE_FILE", "state.json"),
         enable_polling=os.environ.get("ENABLE_POLLING", "1") not in ("0", "false", "no"),
+        rc_api_key=os.environ.get("REVENUECAT_API_KEY", "").strip(),
+        rc_project_id=os.environ.get("REVENUECAT_PROJECT_ID", "").strip(),
+        rc_events_file=os.environ.get("RC_EVENTS_FILE", "rc_events.jsonl"),
+        rc_webhook_auth=os.environ.get("RC_WEBHOOK_AUTH", "").strip(),
         events_app_installed=_list(
             "EVENTS_APP_INSTALLED",
             "Application Installed",

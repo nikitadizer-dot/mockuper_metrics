@@ -16,9 +16,11 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from zoneinfo import ZoneInfo
 
+from bot import rc_events
 from bot.config import Config, load_config
 from bot.posthog_client import PostHogClient, PostHogError
 from bot.reports import ReportBuilder
+from bot.revenuecat_client import RevenueCatClient
 from bot.telegram_client import ConflictError, TelegramClient
 
 logging.basicConfig(
@@ -178,23 +180,50 @@ def polling_loop(cfg: Config, tg: TelegramClient, builder: ReportBuilder) -> Non
 
 # ---------------------------------------------------------------- health server
 
-class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):  # noqa: N802
-        body = b"ok"
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+def _make_handler(cfg: Config):
+    class _Handler(BaseHTTPRequestHandler):
+        def _text(self, code: int, body: str = "ok"):
+            data = body.encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
 
-    def log_message(self, *args):
-        pass
+        def do_GET(self):  # noqa: N802
+            self._text(200)
+
+        def do_POST(self):  # noqa: N802
+            # Вебхуки RevenueCat: складываем события для секции «Подписки».
+            if self.path.rstrip("/") != "/rc/webhook":
+                self._text(404, "not found")
+                return
+            if cfg.rc_webhook_auth:
+                if self.headers.get("Authorization", "") != cfg.rc_webhook_auth:
+                    self._text(401, "unauthorized")
+                    return
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                payload = json.loads(self.rfile.read(length) or b"{}")
+                event = payload.get("event") or {}
+                if event.get("type"):
+                    rc_events.append_event(cfg.rc_events_file, event)
+            except Exception:
+                log.exception("сбой обработки вебхука RevenueCat")
+                self._text(400, "bad request")
+                return
+            self._text(200)
+
+        def log_message(self, *args):
+            pass
+
+    return _Handler
 
 
-def start_health_server(port: int) -> None:
-    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+def start_health_server(port: int, cfg: Config) -> None:
+    server = HTTPServer(("0.0.0.0", port), _make_handler(cfg))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    log.info("health-сервер слушает порт %d", port)
+    log.info("HTTP-сервер слушает порт %d (health + /rc/webhook)", port)
 
 
 # ---------------------------------------------------------------- main
@@ -211,7 +240,13 @@ def main() -> None:
     cfg = load_config()
     tg = TelegramClient(cfg.telegram_token)
     ph = PostHogClient(cfg.posthog_host, cfg.posthog_api_key, cfg.posthog_project_id)
-    builder = ReportBuilder(cfg, ph)
+    rc = None
+    if cfg.rc_api_key and cfg.rc_project_id:
+        rc = RevenueCatClient(cfg.rc_api_key, cfg.rc_project_id)
+        log.info("RevenueCat подключён (проект %s)", cfg.rc_project_id)
+    else:
+        log.info("RevenueCat не настроен — денежная секция в отчётах отключена")
+    builder = ReportBuilder(cfg, ph, rc)
 
     if args.once:
         send_report(cfg, tg, builder, args.once)
@@ -219,7 +254,7 @@ def main() -> None:
 
     port = os.environ.get("PORT")
     if port:
-        start_health_server(int(port))
+        start_health_server(int(port), cfg)
 
     if cfg.enable_polling:
         threading.Thread(
