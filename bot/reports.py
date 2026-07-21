@@ -184,13 +184,16 @@ class ReportBuilder:
         # Поток подписок из вебхуков (если настроены).
         flow = rc_events.summarize(self.cfg.rc_events_file, start, end, self.tz)
         if flow:
+            new_money = flow["new_revenue"]
+            ren_money = flow["renewal_revenue"]
             lines += [
                 "",
                 "🧾 Подписки за период",
-                f"• Новых: {flow['new']} (нед {flow['new_weekly']} / год {flow['new_yearly']})",
-                f"• Продлений: {flow['renewal']}",
-                f"• Отписались (autorenew off): {flow['cancellation']}",
-                f"• Закончились: {flow['expiration']}",
+                f"• Новых: {flow['new']} — нед {flow['new_weekly']} / год {flow['new_yearly']}",
+                f"• Заработано с новых: {_money(new_money)}",
+                f"• Продлений: {flow['renewal']} → {_money(ren_money)}",
+                f"• Итого с подписок: {_money(new_money + ren_money)}",
+                f"• Отписались: {flow['cancellation']} · закончились: {flow['expiration']}",
             ]
             if flow["refund"]:
                 lines.append(f"• Возвраты: {flow['refund']}")
