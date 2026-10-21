@@ -27,7 +27,10 @@ class RevenueCatClient:
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
 
     def _get(self, path: str, params: dict | None = None) -> dict:
-        resp = self.session.get(f"{self.base}{path}", params=params, timeout=self.timeout)
+        try:
+            resp = self.session.get(f"{self.base}{path}", params=params, timeout=self.timeout)
+        except requests.RequestException as e:
+            raise RevenueCatError(f"RevenueCat недоступен: {type(e).__name__}: {e}") from e
         if resp.status_code >= 400:
             raise RevenueCatError(f"RevenueCat API {resp.status_code}: {resp.text[:300]}")
         return resp.json()

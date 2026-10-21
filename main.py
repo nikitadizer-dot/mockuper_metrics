@@ -70,8 +70,16 @@ def send_report(cfg: Config, tg: TelegramClient, builder: ReportBuilder, kind: s
     except PostHogError as e:
         log.error("ошибка PostHog: %s", e)
         text = f"⚠️ Не удалось получить данные из PostHog для отчёта ({kind}):\n{e}"
-    tg.send_message(cfg.chat_id, text)
-    log.info("отчёт %s отправлен в чат %s", kind, cfg.chat_id)
+    except Exception as e:
+        # Любой другой сбой не должен ронять воркер: иначе Render уходит
+        # в рестарт-луп и в итоге приостанавливает сервис.
+        log.exception("сбой сборки отчёта %s", kind)
+        text = f"⚠️ Не удалось собрать отчёт ({kind}): {type(e).__name__}"
+    try:
+        tg.send_message(cfg.chat_id, text)
+        log.info("отчёт %s отправлен в чат %s", kind, cfg.chat_id)
+    except Exception:
+        log.exception("не удалось отправить отчёт %s в Telegram", kind)
 
 
 def scheduler_loop(cfg: Config, tg: TelegramClient, builder: ReportBuilder) -> None:
@@ -83,28 +91,37 @@ def scheduler_loop(cfg: Config, tg: TelegramClient, builder: ReportBuilder) -> N
         cfg.tz_name,
     )
     while True:
-        now = datetime.now(tz)
-        today = now.date()
-        if now.hour >= cfg.report_hour:
-            day_key = today.isoformat()
-            if state.get("daily") != day_key:
-                send_report(cfg, tg, builder, "daily")
-                state["daily"] = day_key
-                save_state(cfg.state_file, state)
-
-            iso = today.isocalendar()
-            week_key = f"{iso.year}-W{iso.week:02d}"
-            if today.weekday() == 0 and state.get("weekly") != week_key:
-                send_report(cfg, tg, builder, "weekly")
-                state["weekly"] = week_key
-                save_state(cfg.state_file, state)
-
-            month_key = f"{today.year}-{today.month:02d}"
-            if today.day == 1 and state.get("monthly") != month_key:
-                send_report(cfg, tg, builder, "monthly")
-                state["monthly"] = month_key
-                save_state(cfg.state_file, state)
+        try:
+            _scheduler_tick(cfg, tg, builder, tz, state)
+        except Exception:
+            log.exception("сбой планировщика, продолжаю работу")
         time_mod.sleep(30)
+
+
+def _scheduler_tick(
+    cfg: Config, tg: TelegramClient, builder: ReportBuilder, tz: ZoneInfo, state: dict
+) -> None:
+    now = datetime.now(tz)
+    today = now.date()
+    if now.hour >= cfg.report_hour:
+        day_key = today.isoformat()
+        if state.get("daily") != day_key:
+            send_report(cfg, tg, builder, "daily")
+            state["daily"] = day_key
+            save_state(cfg.state_file, state)
+
+        iso = today.isocalendar()
+        week_key = f"{iso.year}-W{iso.week:02d}"
+        if today.weekday() == 0 and state.get("weekly") != week_key:
+            send_report(cfg, tg, builder, "weekly")
+            state["weekly"] = week_key
+            save_state(cfg.state_file, state)
+
+        month_key = f"{today.year}-{today.month:02d}"
+        if today.day == 1 and state.get("monthly") != month_key:
+            send_report(cfg, tg, builder, "monthly")
+            state["monthly"] = month_key
+            save_state(cfg.state_file, state)
 
 
 # ---------------------------------------------------------------- telegram commands
