@@ -18,7 +18,9 @@ class TelegramClient:
         self.timeout = timeout
         self.session = requests.Session()
 
-    def send_message(self, chat_id: str | int, text: str) -> None:
+    def send_message(
+        self, chat_id: str | int, text: str, parse_mode: str | None = None
+    ) -> None:
         # Telegram ограничивает сообщение 4096 символами — режем на части.
         for chunk in _chunks(text, 4000):
             resp = self.session.post(
@@ -27,6 +29,7 @@ class TelegramClient:
                     "chat_id": chat_id,
                     "text": chunk,
                     "disable_web_page_preview": True,
+                    **({"parse_mode": parse_mode} if parse_mode else {}),
                 },
                 timeout=self.timeout,
             )

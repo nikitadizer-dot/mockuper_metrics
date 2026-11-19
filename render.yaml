@@ -1,13 +1,13 @@
 # Деплой на Render: https://render.com
-# Blueprint создаст background worker, который живёт постоянно
-# (нужен платный план Starter). Бесплатная альтернатива — см. README.
+# Web service: нужен публичный URL для вебхука RevenueCat (/rc/webhook).
 services:
-  - type: worker
+  - type: web
     name: mockuper-metrics-bot
     runtime: python
     plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
+    healthCheckPath: /
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.4"
@@ -32,4 +32,4 @@ services:
       - key: REVENUECAT_PROJECT_ID
         sync: false # ID проекта RevenueCat (proj...)
       - key: RC_WEBHOOK_AUTH
-        sync: false # секрет для приёма вебхуков RC (опционально, для web-режима)
+        sync: false # секрет вебхука RC = Authorization header в RevenueCat

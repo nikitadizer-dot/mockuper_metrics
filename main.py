@@ -13,11 +13,12 @@ import os
 import threading
 import time as time_mod
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 
 from bot import rc_events
 from bot.config import Config, load_config
+from bot.rc_notify import AppNames, Deduper, format_event
 from bot.posthog_client import PostHogClient, PostHogError
 from bot.reports import ReportBuilder
 from bot.revenuecat_client import RevenueCatClient
@@ -197,7 +198,38 @@ def polling_loop(cfg: Config, tg: TelegramClient, builder: ReportBuilder) -> Non
 
 # ---------------------------------------------------------------- health server
 
-def _make_handler(cfg: Config):
+def _make_rc_notifier(cfg: Config, tg: TelegramClient):
+    """Мгновенное сообщение в Telegram о каждом событии RevenueCat."""
+    tz = ZoneInfo(cfg.tz_name)
+    app_names = AppNames(cfg.rc_api_key or None)
+    dedup = Deduper()
+
+    def send(event: dict) -> None:
+        chat = cfg.rc_notify_chat_id or cfg.chat_id
+        if not chat:
+            return
+        try:
+            text = format_event(event, app_names.get(event.get("app_id")), tz)
+            tg.send_message(chat, text, parse_mode="HTML")
+            log.info("RevenueCat: %s → чат %s", event.get("type"), chat)
+        except Exception:
+            log.exception("RevenueCat: не удалось отправить уведомление")
+
+    def notify(event: dict) -> None:
+        if not cfg.rc_notify or dedup.seen(event.get("id")):
+            return
+        if str(event.get("type", "")).upper() in cfg.rc_skip_events:
+            return
+        if cfg.rc_skip_sandbox and event.get("environment") == "SANDBOX":
+            return
+        threading.Thread(target=send, args=(event,), daemon=True).start()
+
+    return notify
+
+
+def _make_handler(cfg: Config, tg: TelegramClient):
+    notify = _make_rc_notifier(cfg, tg)
+
     class _Handler(BaseHTTPRequestHandler):
         def _text(self, code: int, body: str = "ok"):
             data = body.encode()
@@ -212,7 +244,7 @@ def _make_handler(cfg: Config):
 
         def do_POST(self):  # noqa: N802
             # Вебхуки RevenueCat: складываем события для секции «Подписки».
-            if self.path.rstrip("/") != "/rc/webhook":
+            if self.path.split("?")[0].rstrip("/") not in ("/rc/webhook", "/revenuecat"):
                 self._text(404, "not found")
                 return
             if cfg.rc_webhook_auth:
@@ -225,6 +257,7 @@ def _make_handler(cfg: Config):
                 event = payload.get("event") or {}
                 if event.get("type"):
                     rc_events.append_event(cfg.rc_events_file, event)
+                    notify(event)
             except Exception:
                 log.exception("сбой обработки вебхука RevenueCat")
                 self._text(400, "bad request")
@@ -237,8 +270,8 @@ def _make_handler(cfg: Config):
     return _Handler
 
 
-def start_health_server(port: int, cfg: Config) -> None:
-    server = HTTPServer(("0.0.0.0", port), _make_handler(cfg))
+def start_health_server(port: int, cfg: Config, tg: TelegramClient) -> None:
+    server = ThreadingHTTPServer(("0.0.0.0", port), _make_handler(cfg, tg))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     log.info("HTTP-сервер слушает порт %d (health + /rc/webhook)", port)
 
@@ -271,7 +304,7 @@ def main() -> None:
 
     port = os.environ.get("PORT")
     if port:
-        start_health_server(int(port), cfg)
+        start_health_server(int(port), cfg, tg)
 
     if cfg.enable_polling:
         threading.Thread(

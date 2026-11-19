@@ -30,6 +30,11 @@ class Config:
     rc_project_id: str
     rc_events_file: str
     rc_webhook_auth: str
+    # Мгновенные уведомления о каждой покупке из вебхука RevenueCat.
+    rc_notify: bool
+    rc_notify_chat_id: str | None
+    rc_skip_events: list[str]
+    rc_skip_sandbox: bool
 
     # Имена событий в PostHog. Для каждой метрики можно указать несколько
     # кандидатов через запятую — считаются все, которые реально есть в данных.
@@ -72,6 +77,10 @@ def load_config() -> Config:
         rc_project_id=os.environ.get("REVENUECAT_PROJECT_ID", "").strip(),
         rc_events_file=os.environ.get("RC_EVENTS_FILE", "rc_events.jsonl"),
         rc_webhook_auth=os.environ.get("RC_WEBHOOK_AUTH", "").strip(),
+        rc_notify=os.environ.get("RC_NOTIFY", "1") not in ("0", "false", "no"),
+        rc_notify_chat_id=os.environ.get("RC_NOTIFY_CHAT_ID", "").strip() or None,
+        rc_skip_events=[x.upper() for x in _list("RC_SKIP_EVENTS", "")],
+        rc_skip_sandbox=os.environ.get("RC_SKIP_SANDBOX", "0") in ("1", "true", "yes"),
         events_app_installed=_list(
             "EVENTS_APP_INSTALLED",
             "Application Installed",
