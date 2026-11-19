@@ -13,12 +13,13 @@ import os
 import threading
 import time as time_mod
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 
 from bot.config import Config, load_config
 from bot.posthog_client import PostHogClient, PostHogError
 from bot.reports import ReportBuilder
+from bot.revenuecat import AppNames, Deduper, format_event
 from bot.telegram_client import ConflictError, TelegramClient
 
 logging.basicConfig(
@@ -178,23 +179,69 @@ def polling_loop(cfg: Config, tg: TelegramClient, builder: ReportBuilder) -> Non
 
 # ---------------------------------------------------------------- health server
 
-class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):  # noqa: N802
-        body = b"ok"
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+def make_http_handler(cfg: Config, tg: TelegramClient):
+    tz = ZoneInfo(cfg.tz_name)
+    app_names = AppNames(cfg.revenuecat_api_key)
+    dedup = Deduper()
 
-    def log_message(self, *args):
-        pass
+    def notify(event: dict) -> None:
+        chat = cfg.revenuecat_chat_id or cfg.chat_id
+        if not chat:
+            log.warning("RevenueCat: чат не задан, событие %s пропущено", event.get("type"))
+            return
+        try:
+            text = format_event(event, app_names.get(event.get("app_id")), tz)
+            tg.send_message(chat, text, parse_mode="HTML")
+            log.info("RevenueCat: %s отправлено в чат %s", event.get("type"), chat)
+        except Exception:
+            log.exception("RevenueCat: не удалось отправить событие")
+
+    class Handler(BaseHTTPRequestHandler):
+        def _reply(self, code: int, body: bytes = b"ok") -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):  # noqa: N802 — health-check
+            self._reply(200)
+
+        def do_POST(self):  # noqa: N802
+            if self.path.rstrip("/").split("?")[0] != "/revenuecat":
+                return self._reply(404, b"not found")
+            if not cfg.revenuecat_webhook_auth:
+                return self._reply(503, b"REVENUECAT_WEBHOOK_AUTH not set")
+            auth = self.headers.get("Authorization", "")
+            if auth not in (cfg.revenuecat_webhook_auth, f"Bearer {cfg.revenuecat_webhook_auth}"):
+                return self._reply(401, b"unauthorized")
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                event = json.loads(self.rfile.read(length) or b"{}").get("event") or {}
+            except (ValueError, AttributeError):
+                return self._reply(400, b"bad json")
+
+            # Отвечаем сразу, чтобы RevenueCat не ждал Telegram и не ретраил.
+            self._reply(200)
+            etype = str(event.get("type", "")).upper()
+            if dedup.seen(event.get("id")):
+                return
+            if etype in cfg.revenuecat_skip_events:
+                return
+            if cfg.revenuecat_skip_sandbox and event.get("environment") == "SANDBOX":
+                return
+            threading.Thread(target=notify, args=(event,), daemon=True).start()
+
+        def log_message(self, *args):
+            pass
+
+    return Handler
 
 
-def start_health_server(port: int) -> None:
-    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+def start_http_server(cfg: Config, tg: TelegramClient, port: int) -> None:
+    server = ThreadingHTTPServer(("0.0.0.0", port), make_http_handler(cfg, tg))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    log.info("health-сервер слушает порт %d", port)
+    log.info("HTTP-сервер на порту %d (health + POST /revenuecat)", port)
 
 
 # ---------------------------------------------------------------- main
@@ -219,7 +266,7 @@ def main() -> None:
 
     port = os.environ.get("PORT")
     if port:
-        start_health_server(int(port))
+        start_http_server(cfg, tg, int(port))
 
     if cfg.enable_polling:
         threading.Thread(

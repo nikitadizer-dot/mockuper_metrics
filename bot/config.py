@@ -24,6 +24,13 @@ class Config:
     state_file: str
     enable_polling: bool
 
+    # RevenueCat: вебхук POST /revenuecat → сообщение в Telegram.
+    revenuecat_webhook_auth: str | None
+    revenuecat_api_key: str | None
+    revenuecat_chat_id: str | None
+    revenuecat_skip_events: list[str]
+    revenuecat_skip_sandbox: bool
+
     # Имена событий в PostHog. Для каждой метрики можно указать несколько
     # кандидатов через запятую — считаются все, которые реально есть в данных.
     events_app_opened: list[str]
@@ -60,6 +67,11 @@ def load_config() -> Config:
         report_hour=int(os.environ.get("REPORT_HOUR", "9")),
         state_file=os.environ.get("STATE_FILE", "state.json"),
         enable_polling=os.environ.get("ENABLE_POLLING", "1") not in ("0", "false", "no"),
+        revenuecat_webhook_auth=os.environ.get("REVENUECAT_WEBHOOK_AUTH", "").strip() or None,
+        revenuecat_api_key=os.environ.get("REVENUECAT_API_KEY", "").strip() or None,
+        revenuecat_chat_id=os.environ.get("REVENUECAT_CHAT_ID", "").strip() or None,
+        revenuecat_skip_events=[x.upper() for x in _list("REVENUECAT_SKIP_EVENTS", "")],
+        revenuecat_skip_sandbox=os.environ.get("REVENUECAT_SKIP_SANDBOX", "0") in ("1", "true", "yes"),
         events_app_opened=_list(
             "EVENTS_APP_OPENED",
             "Application Opened,app_opened,app_launched,app_launch,app_open",

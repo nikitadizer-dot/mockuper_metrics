@@ -36,6 +36,39 @@ Telegram-бот, который каждый день в 9:00 присылает
 генераций из приложения через этот же токен — он только шлёт сообщения
 и читает команды через long polling.
 
+## Уведомления о покупках (RevenueCat)
+
+Каждая покупка, триал, продление, отмена, возврат и проблема с оплатой во
+**всех приложениях** проекта RevenueCat сразу приходит в Telegram:
+
+```
+🟢 Новая подписка
+📱 Mockup Clothing (App Store)
+📦 pro_monthly
+💵 9.49 EUR (≈ 9.99 USD)
+🏦 Чистыми ≈ 8.49 USD
+🏷 App Store · DE
+📅 До: 19.12.2026 14:00
+👤 $RCAnonymousID:abc
+🕒 19.11.2026 14:00
+```
+
+Настройка:
+
+1. На Render у сервиса задайте `REVENUECAT_WEBHOOK_AUTH` (любая длинная
+   случайная строка; Blueprint генерирует её сам) и, по желанию,
+   `REVENUECAT_API_KEY` (`sk_...`), чтобы в сообщениях были названия
+   приложений, а не их ID.
+2. В RevenueCat: **Project → Integrations → Webhooks → Add new webhook**
+   - URL: `https://<ваш-сервис>.onrender.com/revenuecat`
+   - Authorization header value: значение `REVENUECAT_WEBHOOK_AUTH`
+   - Environment: Production и Sandbox (или только Production)
+   - App: All apps, Events: All events
+3. Нажмите **Send test event**, и в чат придёт «🧪 Тестовое событие».
+
+Если приложения лежат в разных проектах RevenueCat, добавьте такой же вебхук
+в каждом проекте.
+
 ## Команды бота
 
 | Команда | Что делает |
@@ -84,6 +117,11 @@ Telegram-бот, который каждый день в 9:00 присылает
 | `REPORT_HOUR` | `9` | час отправки ежедневного отчёта |
 | `APP_NAME` | `Mockup Clothing` | название в шапке отчёта |
 | `ENABLE_POLLING` | `1` | `0` — отключить команды в Telegram |
+| `REVENUECAT_WEBHOOK_AUTH` | — | секрет заголовка Authorization вебхука |
+| `REVENUECAT_API_KEY` | — | `sk_...`, для названий приложений (необязательно) |
+| `REVENUECAT_CHAT_ID` | `TELEGRAM_CHAT_ID` | отдельный чат для покупок |
+| `REVENUECAT_SKIP_EVENTS` | — | события, которые не присылать (`EXPIRATION,...`) |
+| `REVENUECAT_SKIP_SANDBOX` | `0` | `1` — игнорировать sandbox-покупки |
 
 ### Имена событий
 
