@@ -86,6 +86,19 @@ def send_report(cfg: Config, tg: TelegramClient, builder: ReportBuilder, kind: s
 def scheduler_loop(cfg: Config, tg: TelegramClient, builder: ReportBuilder) -> None:
     tz = ZoneInfo(cfg.tz_name)
     state = load_state(cfg.state_file)
+    if not state:
+        # Состояния нет (бесплатный Render засыпает и теряет файлы). Чтобы
+        # после каждого пробуждения не слать отчёт повторно, догоняем
+        # пропущенный отчёт только в течение часа после REPORT_HOUR.
+        now = datetime.now(tz)
+        if now.hour > cfg.report_hour:
+            today = now.date()
+            iso = today.isocalendar()
+            state.update(
+                daily=today.isoformat(),
+                weekly=f"{iso.year}-W{iso.week:02d}",
+                monthly=f"{today.year}-{today.month:02d}",
+            )
     log.info(
         "планировщик запущен: ежедневно в %02d:00 (%s), weekly по понедельникам, monthly 1-го числа",
         cfg.report_hour,
