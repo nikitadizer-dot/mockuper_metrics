@@ -231,7 +231,14 @@ def _make_rc_notifier(cfg: Config, tg: TelegramClient):
     def notify(event: dict) -> None:
         if not cfg.rc_notify or dedup.seen(event.get("id")):
             return
-        if str(event.get("type", "")).upper() in cfg.rc_skip_events:
+        etype = str(event.get("type", "")).upper()
+        # Возврат денег RevenueCat присылает как CANCELLATION — считаем его
+        # отдельным типом REFUND, чтобы фильтр отмен не прятал возвраты.
+        if etype == "CANCELLATION" and (
+            event.get("cancel_reason") == "CUSTOMER_SUPPORT" or (event.get("price") or 0) < 0
+        ):
+            etype = "REFUND"
+        if etype in cfg.rc_skip_events:
             return
         if cfg.rc_skip_sandbox and event.get("environment") == "SANDBOX":
             return

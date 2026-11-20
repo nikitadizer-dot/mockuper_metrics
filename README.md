@@ -47,7 +47,7 @@ Telegram-бот, который каждый день в 9:00 присылает
 |---|---|---|
 | `RC_NOTIFY` | `1` | `0` — выключить мгновенные уведомления |
 | `RC_NOTIFY_CHAT_ID` | `TELEGRAM_CHAT_ID` | отдельный чат для покупок |
-| `RC_SKIP_EVENTS` | — | не присылать эти типы (`EXPIRATION,BILLING_ISSUE`) |
+| `RC_SKIP_EVENTS` | — | не присылать эти типы (`CANCELLATION,BILLING_ISSUE`); возвраты — отдельный тип `REFUND` |
 | `RC_SKIP_SANDBOX` | `0` | `1` — игнорировать sandbox-покупки |
 
 ## Деньги и подписки (RevenueCat)
